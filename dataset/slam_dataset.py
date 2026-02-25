@@ -33,6 +33,8 @@ from utils.tools import (
     transform_torch,
     voxel_down_sample_torch,
 )
+import gtsam
+
 
 class SLAMDataset(Dataset):
     def __init__(self, config: Config) -> None:
@@ -59,6 +61,11 @@ class SLAMDataset(Dataset):
                 sequence=config.data_loader_seq,
                 topic=config.data_loader_seq,
                 cam_name=config.data_loader_seq,
+                pc_path=config.pc_path,
+                calib_file_path = config.calib_path,
+                gt_pose_path = config.pose_path,
+                imu_path = config.imu_path,
+                imu_intrinsic_path = config.imu_calib_path,
             )
             config.end_frame = min(len(self.loader), config.end_frame)
             used_frame_count = int((config.end_frame - config.begin_frame) / config.step_frame)
@@ -70,7 +77,10 @@ class SLAMDataset(Dataset):
             else:
                 self.gt_pose_provided = False
             if hasattr(self.loader, 'calibration'):
-                self.calib["Tr"][:3, :4] = self.loader.calibration["Tr"].reshape(3, 4)
+                if type(self.loader.calibration["Tr"]) == np.ndarray:
+                    self.calib["Tr"][:3, :4] = self.loader.calibration["Tr"].reshape(3, 4)
+                elif type(self.loader.calibration["Tr"]) is str:
+                    self.calib["Tr"][:3, :4] = np.asarray((self.loader.calibration["Tr"].split(','))).astype(float).reshape(3,4)
             if hasattr(self.loader, "K_mats"): # as dictionary
                 self.K_mats = self.loader.K_mats
                 self.cam_names = list(self.K_mats.keys())
@@ -78,7 +88,17 @@ class SLAMDataset(Dataset):
                 self.T_c_l_mats = self.loader.T_c_l_mats # as dictionary
             if config.color_channel == 3:
                 self.loader.load_img = True
-            
+            if config.use_inertial_deadreconing:
+                # ensure that the IMU data is loaded
+                if (self.loader.inertialmsgs == None) or (self.loader.inertial_intrinsics == None):
+                    print("Inertial messages not available. Continuin without invertial deadreconing")
+                    self.use_inertial_deadreconing = False
+                else:
+                    self.use_inertial_deadreconing = True
+            else:
+                self.use_inertial_deadreconing = False
+        
+
         else: # original pin-slam generic loader
             # point cloud files
             if config.pc_path != "":
@@ -149,6 +169,9 @@ class SLAMDataset(Dataset):
         # count the consecutive stop frame of the robot
         self.stop_count: int = 0
         self.stop_status = False
+
+        self.previous_scan_time = 0.0
+        self.current_scan_time = 0.0  # default 0.1s for 10Hz LiDAR
 
         if self.config.kitti_correction_on:
             self.last_odom_tran[0, 3] = (
@@ -371,7 +394,31 @@ class SLAMDataset(Dataset):
         elif frame_id > 0:
             # pose initial guess
             # last_translation = np.linalg.norm(self.last_odom_tran[:3, 3])
-            if self.config.uniform_motion_on and not self.lose_track: 
+            if self.use_inertial_deadreconing and not self.lose_track and self.cur_frame_imus['timestamps'].shape[0] != 0:
+                #Inertial deadreconing
+                pim = inertial_preintegration(self.cur_frame_imus)
+
+                 # IMU relative motion
+                dR = pim.deltaRij().matrix()
+                dp = np.array(pim.deltaPij())
+                T_imu_ji = np.eye(4)
+                T_imu_ji[:3, :3] = dR
+                T_imu_ji[:3, 3]  = dp
+
+                T_L_I = self.loader.T_L_I
+                T_I_L = self.loader.T_I_L
+
+                cur_pose_init_guess = (self.last_pose_ref @ T_L_I @ T_imu_ji @ T_I_L )
+                
+                '''
+                print("IMU Δp norm:", np.linalg.norm(dp))
+                print("IMU ΔR angle (deg):", np.rad2deg(np.arccos((np.trace(dR)-1)/2)))
+                print("Predicted LiDAR Δp:", np.linalg.norm((T_L_I @ T_imu_ji @ T_I_L)[:3,3]))
+                breakpoint
+                '''
+                
+    
+            elif self.config.uniform_motion_on and not self.lose_track: 
             # if self.config.uniform_motion_on:   
                 # apply uniform motion model here
                 cur_pose_init_guess = (
@@ -427,14 +474,25 @@ class SLAMDataset(Dataset):
                 self.pgo_poses[frame_id] = cur_pose_init_guess
             return False
 
-        if self.config.rand_downsample:
-            kept_count = int(original_count * self.config.rand_down_r)
-            idx = torch.randint(0, original_count, (kept_count,), device=self.device)
+        # Added  ASB
+        if not self.config.use_adptive_downsampling:
+            if self.config.rand_downsample:
+                kept_count = int(original_count * self.config.rand_down_r)
+                idx = torch.randint(0, original_count, (kept_count,), device=self.device)
+            else:
+                idx = voxel_down_sample_torch(
+                    self.cur_point_cloud_torch[:, :3], train_voxel_m
+                )
+                
+            self.cur_point_cloud_torch = self.cur_point_cloud_torch[idx]
         else:
-            idx = voxel_down_sample_torch(
-                self.cur_point_cloud_torch[:, :3], train_voxel_m
-            )
-        self.cur_point_cloud_torch = self.cur_point_cloud_torch[idx]
+            #TODO 
+            # Bring the adaptive downsampling method here
+            # So that We can tune the downsampling 
+            # For now
+            pass
+        
+        
         if self.cur_point_ts_torch is not None:
             self.cur_point_ts_torch = self.cur_point_ts_torch[idx]
         if self.cur_sem_labels_torch is not None:
@@ -477,8 +535,16 @@ class SLAMDataset(Dataset):
             )  # used for registration
 
             # source point voxel downsampling (for registration)
-            idx = voxel_down_sample_torch(cur_source_torch[:, :3], source_voxel_m)
-            cur_source_torch = cur_source_torch[idx]
+            # Added ASB
+            if not self.config.use_adptive_downsampling:
+                idx = voxel_down_sample_torch(cur_source_torch[:, :3], source_voxel_m)
+                cur_source_torch = cur_source_torch[idx]
+            else:
+                # TODO
+                # retune the adaptive downsampling
+                # to get only 8000 - 10000 points
+                pass
+            
             self.cur_source_points = cur_source_torch[:, :3]
             if self.config.color_on:
                 self.cur_source_colors = cur_source_torch[:, 3:]
@@ -1313,3 +1379,55 @@ def write_traj_as_o3d(poses_np, path):
         o3d.io.write_point_cloud(path, o3d_pcd)
 
     return o3d_pcd
+
+
+def inertial_preintegration(imu_msgs,initial_bias=None):
+    """
+    imu_msgs: your filtered list/dict of 400Hz messages
+    """
+
+    def setup_preintegration_params(intrinsics):
+        # 1. Define Noise Densities (Adjust these based on sensor datasheet)
+        # Oxford Spires/Hesai/Xsens typically:
+        accel_noise_sigma = intrinsics['accel']['noise_density']  # m/s^2 / sqrt(Hz)
+        gyro_noise_sigma = intrinsics['gyro']['noise_density']  # rad/s / sqrt(Hz)
+
+        accel_bias_rw_sigma = intrinsics['accel']['random_walk']  # m/s^3 / sqrt(Hz)
+        gyro_bias_rw_sigma = intrinsics['gyro']['random_walk']  # rad/s^
+
+
+        integration_sigma = 1e-7    # Integration error
+        
+        # 2. Initialize the Preintegration Parameters
+        # We assume the gravity is along the Z-axis
+        PARAMS = gtsam.PreintegrationCombinedParams.MakeSharedD(9.81)
+        
+        # Apply noise densities to the covariance matrix
+        PARAMS.setAccelerometerCovariance(np.eye(3) * (accel_noise_sigma**2))
+        PARAMS.setGyroscopeCovariance(np.eye(3) * (gyro_noise_sigma**2))
+        PARAMS.setBiasAccCovariance(np.eye(3) * (accel_bias_rw_sigma**2))
+        PARAMS.setBiasOmegaCovariance(np.eye(3) * (gyro_bias_rw_sigma**2))
+
+        PARAMS.setIntegrationCovariance(np.eye(3) * integration_sigma**2 )
+        
+        return PARAMS
+
+    params = setup_preintegration_params(imu_msgs['intrinsics'])
+
+    if initial_bias is None:
+        initial_bias = gtsam.imuBias.ConstantBias() # Assume zero bias initially
+
+    # Initialize the Preintegrator
+    accum = gtsam.PreintegratedCombinedMeasurements(params, initial_bias)
+    
+    for i in range(len(imu_msgs['timestamps']) - 1):
+        dt = imu_msgs['timestamps'][i+1] - imu_msgs['timestamps'][i]
+        
+        # Add measurement: (accel, gyro, dt)
+        accum.integrateMeasurement(
+            imu_msgs['accel'][i], 
+            imu_msgs['gyro'][i], 
+            dt
+        )
+        
+    return accum

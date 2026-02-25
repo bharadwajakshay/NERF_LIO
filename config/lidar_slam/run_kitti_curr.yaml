@@ -1,0 +1,54 @@
+continual:
+  batch_size_new_sample: 1000
+  pool_capacity: 2e7
+decoder:
+  freeze_after_frame: 40
+eval:
+  mesh_freq_frame: 50
+  mesh_min_nn: 9
+  o3d_vis_on: false
+  sensor_cad_path: ./cad/kitti_car.ply
+  silence_log: true
+loss:
+  dist_weight_scale: 0.8
+  ekional_loss_on: true
+  loss_weight_on: true
+  main_loss_type: bce
+  sigma_sigmoid_m: 0.08
+  weight_e: 0.5
+neuralpoints:
+  feature_dim: 8
+  query_nn_k: 6
+  search_alpha: 0.2
+  voxel_size_m: 0.4
+  weighted_first: false
+optimizer:
+  batch_size: 16384
+pgo:
+  context_cosdist: 0.3
+  pgo_freq_frame: 20
+process:
+  max_range_m: 80.0
+  min_range_m: 3.0
+  min_z_m: -3.5
+  use_adptive_downsampling: true
+  vox_down_m: 0.08
+sampler:
+  free_front_sample_n: 2
+  free_sample_begin_ratio: 0.3
+  free_sample_end_dist_m: 1.0
+  surface_sample_n: 4
+  surface_sample_range_m: 0.25
+setting:
+  calib_path: ./data/kitti/sequences/00/calib.txt
+  correct_deg: 0.195
+  kitti_correct: true
+  name: kitti_downsample_seq_00
+  output_root: ./experiments
+  pc_path: ./data/kitti/sequences/00/downsampled_velodyne
+  pose_path: ./data/kitti/poses/00.txt
+tracker:
+  GM_dist: 0.2
+  GM_grad: 0.1
+  iter_n: 100
+  source_vox_down_m: 0.6

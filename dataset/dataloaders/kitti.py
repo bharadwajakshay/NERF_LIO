@@ -32,11 +32,14 @@ import numpy as np
 
 class KITTIOdometryDataset:
     def __init__(self, data_dir, sequence: str, *_, **__):
+        
+        pc_dir = data_dir.parts[-1]
+        data_dir = os.path.join(*data_dir.parts[:2])
 
         self.sequence_id = str(sequence).zfill(2)
         self.kitti_sequence_dir = os.path.join(data_dir, "sequences", self.sequence_id)
         
-        self.velodyne_dir = os.path.join(self.kitti_sequence_dir, "velodyne/")
+        self.velodyne_dir = os.path.join(self.kitti_sequence_dir, f"{pc_dir}/")
 
         self.scan_files = sorted(glob.glob(self.velodyne_dir + "*.bin"))
         scan_count = len(self.scan_files)

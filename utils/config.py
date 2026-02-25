@@ -24,6 +24,8 @@ class Config:
         self.pose_path: str = ""  # input pose file
         self.calib_path: str = ""  # input calib file (to sensor frame), optional
         self.label_path: str = "" # input point-wise label path, for semantic mapping (optional)
+        self.imu_path: str = "" # input imu data path, optional
+        self.imu_calib_path: str = "" # input imu intrinsic calibration file path, optional
 
         # for uisng specific data loader
         self.use_dataloader: bool = False
@@ -66,6 +68,12 @@ class Config:
         self.rand_downsample: bool = False  # apply random or voxel downsampling to input original point clcoud
         self.vox_down_m: float = 0.05 # the voxel size if using voxel downsampling (unit: m)
         self.rand_down_r: float = 1.0 # the decimation ratio if using random downsampling (0-1)
+        
+        # Use downsampled pointcloud 
+        self.use_adptive_downsampling: bool = False
+
+        # Use inertial deadreconing
+        self.use_inertial_deadreconing: bool = False
 
         # semantic related
         self.semantic_on: bool = False # semantic shine mapping on [semantic]
@@ -361,6 +369,9 @@ class Config:
 
             self.deskew = config_args["setting"].get("deskew", self.deskew) # apply motion undistortion or not
 
+            self.imu_path = config_args["setting"].get("imu_path", self.imu_path)
+            self.imu_calib_path = config_args["setting"].get("imu_calib_path", self.imu_calib_path)
+
         # process
         if "process" in config_args:
             self.min_range = config_args["process"].get("min_range_m", self.min_range)
@@ -378,7 +389,11 @@ class Config:
             self.dynamic_certainty_thre = config_args["process"].get("dynamic_certainty_thre", self.dynamic_certainty_thre)
             self.dynamic_sdf_ratio_thre = config_args["process"].get("dynamic_sdf_ratio_thre", self.dynamic_sdf_ratio_thre)
             self.dynamic_min_grad_norm_thre = config_args["process"].get("dynamic_min_grad_norm_thre", self.dynamic_min_grad_norm_thre)
+            self.use_adptive_downsampling = config_args["process"].get("use_adptive_downsampling", self.use_adptive_downsampling)
             
+            self.use_inertial_deadreconing = config_args["process"].get("use_inertial_deadreconing", self.use_inertial_deadreconing)
+    
+                        
         # sampler
         if "sampler" in config_args:
             self.surface_sample_range_m = config_args["sampler"].get("surface_sample_range_m", self.vox_down_m * 3.0) 

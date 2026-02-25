@@ -1,0 +1,60 @@
+setting:
+  name: "oxford_spires_inertial"
+  output_root: "./sanity-exp/"
+  pc_path: "./data/oxford-spires/sdk/data/sequences/2024-03-12-keble-college-02/raw/lidar-clouds/lidar-clouds/"
+  pose_path: ""
+  calib_path: "./data/oxford-spires/calibration/cam-lidar-imu.yaml"
+  imu_path: "./data/oxford-spires/sdk/data/sequences/2024-03-12-keble-college-02/raw/imu.csv"
+  imu_calib_path: "./data/oxford-spires/calibration/imu.yaml"
+  deskew: False
+process:
+  use_inertial_deadreconing: True
+  use_adptive_downsampling: False
+  min_range_m: 1.0
+  max_range_m: 80.0
+  min_z_m: -10.0
+  vox_down_m: 0.06
+  dynamic_sdf_ratio_thre: 0.8
+sampler:
+  surface_sample_range_m: 0.25
+  surface_sample_n: 6
+  free_sample_begin_ratio: 0.5
+  free_sample_end_dist_m: 0.6
+  free_front_sample_n: 3 
+neuralpoints:
+  voxel_size_m: 0.2
+  search_alpha: 0.5
+  feature_dim: 32
+  color_feature_dim: 16
+  weighted_first: False
+  query_nn_k: 6
+  search_alpha: 0.2
+decoder:
+  freeze_after_frame: 30
+loss:
+  main_loss_type: bce
+  sigma_sigmoid_m: 0.05
+  weight_color: 0.0
+  ekional_loss_on: True
+  numerical_grad: False
+  weight_e: 0.2
+  loss_weight_on: True
+  dist_weight_scale: 0.8
+continual:
+  batch_size_new_sample: 1000
+  pool_capacity: 2e7
+  pool_filter_freq: 1
+tracker:
+  source_vox_down_m: 0.4
+  iter_n: 100
+pgo:
+  pgo_freq_frame: 20
+  context_cosdist: 0.3
+optimizer: # mapper
+  iters: 15  # iterations per frame for sdf mapping
+  batch_size: 16384
+eval:
+  mesh_freq_frame: 10 # reconstruct the mesh every x frames
+  mesh_min_nn: 15
+  o3d_vis_on: False # visualize the mapping or not
+  silence_log: True # output the logs or not
