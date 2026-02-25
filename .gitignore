@@ -163,6 +163,8 @@ data
 data/
 experiments
 experiments/
+evaluation
+evaluation/
 .vscode/
 
 *.json
