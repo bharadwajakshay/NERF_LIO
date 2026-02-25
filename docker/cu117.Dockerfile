@@ -110,7 +110,7 @@ RUN rm kitti_example.tar.gz
 RUN git config --global --add safe.directory '*'
 
 # Finish installation
-WORKDIR /src/PIN_SLAM
+WORKDIR /src/NERF_LIO
 
 RUN apt-get clean
 
